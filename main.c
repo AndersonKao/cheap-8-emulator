@@ -18,7 +18,7 @@ uint8_t regs[16]; // 16 Vx registers, V0-VF.
 uint16_t idx_reg;
 uint8_t delay_timer;
 uint8_t sound_timer;
-uint16_t pc = 0; // program counter
+uint16_t pc = PROGRAM_ST; // program counter
 uint8_t sp; // stack pointer
 uint8_t screen[32][64] = {0};
 
@@ -294,8 +294,8 @@ void decode(uint16_t instruction){
 }
 
 uint16_t load_instruction(){
-	uint16_t left = ram[PROGRAM_ST + pc];
-	uint16_t right = ram[PROGRAM_ST + pc + 1];
+	uint16_t left = ram[pc];
+	uint16_t right = ram[pc + 1];
 		printf("instruction %02X\n", left);
 		printf("instruction %02X\n", right);
 	uint16_t res = (((uint16_t)(left)) << 8) | right;
@@ -329,7 +329,7 @@ void emulate(){
 			memset(screen, 0, sizeof(uint8_t) * 32 * 64);
 		}
 		else if(instruction == 0x0000){
-			pc = 0;
+//			pc = 0;
 		}
 		else if(instruction == 0x00EE){
 			pc = stack[sp--];
