@@ -2,6 +2,7 @@
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_render.h>
 #include <SDL3/SDL_video.h>
+#include <time.h>
 #define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
 
@@ -19,7 +20,7 @@ uint8_t delay_timer;
 uint8_t sound_timer;
 uint16_t pc = 0; // program counter
 uint8_t sp; // stack pointer
-uint8_t screen[64][32] = {0};
+uint8_t screen[32][64] = {0};
 
 /*
  * Memory Map:
@@ -50,10 +51,8 @@ uint8_t screen[64][32] = {0};
 // SDL primitives
 static SDL_Window *window = NULL;
 static SDL_Renderer *renderer = NULL;
-const int SCALE_X = 4;
-const int SCALE_Y = 4;
-
-
+const int SCALE_X = 16;
+const int SCALE_Y = 16;
 
 void init_graphics(){
 	if( !SDL_Init( SDL_INIT_VIDEO) )
@@ -65,7 +64,7 @@ void init_graphics(){
 	if (!SDL_CreateWindowAndRenderer("Chip-8 emulator by Anderson Kao", 64 * SCALE_X, 32 * SCALE_Y, SDL_WINDOW_RESIZABLE, &window, &renderer)){
 			abort();
 	}
-	SDL_SetRenderLogicalPresentation(renderer, 640, 480, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+	// SDL_SetRenderLogicalPresentation(renderer, 640, 480, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
 }
 
@@ -79,12 +78,12 @@ void render(){
 	rect.h = SCALE_Y;
 	SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
 
-	for(uint8_t r = 0; r < 64; r++){
-		for(uint8_t c = 0; c < 32; c++){
+	for(uint8_t r = 0; r < 32; r++){
+		for(uint8_t c = 0; c < 64; c++){
 			if(screen[r][c]){
 				rect.x = c * SCALE_X;
 				rect.y = r * SCALE_Y;
-				SDL_RenderRect(renderer, &rect);
+				SDL_RenderFillRect(renderer, &rect);
 			}
 		}
 	}
@@ -270,17 +269,17 @@ void decode(uint16_t instruction){
 			uint8_t coord_y = regs[reg_idy] & (0x1F); // mod 32
 			regs[VF] = 0;
 			uint8_t row_count = getnibble4(instruction);
-			for(int r = 0; r < row_count; r++){
+			for(uint8_t r = 0; r < row_count; r++){
 				uint8_t render_byte = ram[idx_reg + r];
-				for(int offset = 0; offset < 8; offset++){
-					if(render_byte & (1 << offset)){
+				for(uint8_t offset = 0; offset < 8; offset++){
+					if(render_byte & (1 << (7 - offset))){
 						uint8_t x = coord_x + offset;
 						uint8_t y = coord_y + r;
 						if(x < 64 && y < 32){
-							if(screen[x][y] == 1){
+							if(screen[y][x] == 1){
 								regs[VF] = 1;
 							}
-							screen[x][y] ^= 1;	
+							screen[y][x] ^= 1;	
 						}
 					}
 				}
@@ -303,12 +302,20 @@ uint16_t load_instruction(){
 	return res;
 }
 
+void SLEEP(int msec){
+	struct timespec ts;
+	ts.tv_sec = msec/1000;
+	ts.tv_nsec = msec%1000*1000*1000;
+	nanosleep(&ts, NULL);
+}
+
 SDL_Event event;
 
 void emulate(){
 	uint16_t instruction;
 	bool running = true;
 	while(running){
+		SLEEP(400);
 		while (SDL_PollEvent(&event)){
 			if(event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
 				running = false;
@@ -319,7 +326,7 @@ void emulate(){
 		pc+=2;
 		if(instruction == 0x00E0){
 			// clear screen
-			memset(screen, 0, sizeof(uint8_t) * 64 * 32);
+			memset(screen, 0, sizeof(uint8_t) * 32 * 64);
 		}
 		else if(instruction == 0x0000){
 			pc = 0;
