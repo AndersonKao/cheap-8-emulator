@@ -1,6 +1,8 @@
+#include <SDL3/SDL_asyncio.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_render.h>
+#include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_video.h>
 #include <stdint.h>
 #include <time.h>
@@ -431,8 +433,6 @@ void decode(uint16_t instruction){
 uint16_t load_instruction(){
 	uint16_t left = ram[pc];
 	uint16_t right = ram[pc + 1];
-		printf("instruction %02X\n", left);
-		printf("instruction %02X\n", right);
 	uint16_t res = (((uint16_t)(left)) << 8) | right;
 	return res;
 }
@@ -444,20 +444,63 @@ void SLEEP(int msec){
 	nanosleep(&ts, NULL);
 }
 
+const bool *key_states;
+void update_keyboard(){
+	/*
+	 * 1 2 3 C
+	 * 4 5 6 D
+	 * 7 8 9 E
+	 * A 0 B F
+	 * */
+	keypad[0x1] = key_states[SDL_SCANCODE_1];
+	keypad[0x2] = key_states[SDL_SCANCODE_2];
+	keypad[0x3] = key_states[SDL_SCANCODE_3];
+	keypad[0xC] = key_states[SDL_SCANCODE_4];
+	keypad[0x4] = key_states[SDL_SCANCODE_Q];
+	keypad[0x5] = key_states[SDL_SCANCODE_W];
+	keypad[0x6] = key_states[SDL_SCANCODE_E];
+	keypad[0xD] = key_states[SDL_SCANCODE_R];
+	keypad[0x7] = key_states[SDL_SCANCODE_A];
+	keypad[0x8] = key_states[SDL_SCANCODE_S];
+	keypad[0x9] = key_states[SDL_SCANCODE_D];
+	keypad[0xE] = key_states[SDL_SCANCODE_F];
+	keypad[0xA] = key_states[SDL_SCANCODE_Z];
+	keypad[0x0] = key_states[SDL_SCANCODE_X];
+	keypad[0xB] = key_states[SDL_SCANCODE_C];
+	keypad[0xF] = key_states[SDL_SCANCODE_V];
+}
+
+void decrease_timer(){
+	static clock_t pre_time = 0;
+
+	clock_t now_time = clock();
+	if(now_time - pre_time >= 1000){
+		if(delay_timer > 0)
+			delay_timer--;
+		if(sound_timer > 0)
+			sound_timer--;
+	}
+	pre_time = now_time;
+}
+
 SDL_Event event;
 
 void emulate(){
+	key_states = SDL_GetKeyboardState(NULL);
 	uint16_t instruction;
 	bool running = true;
 	while(running){
-		SLEEP(1);
-		while (SDL_PollEvent(&event)){
+		if (SDL_PollEvent(&event)){
 			if(event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
 				running = false;
 		}
-		log_registers();
+		update_keyboard();
+		decrease_timer();
 		instruction = load_instruction();
+#ifdef DEBUG
+		log_registers();
 		printf("instruction %04X\n", instruction);
+#endif
 		pc+=2;
 		if(instruction == 0x00E0){
 			// clear screen
