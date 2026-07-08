@@ -2,6 +2,7 @@
 #include <SDL3/SDL_oldnames.h>
 #include <SDL3/SDL_render.h>
 #include <SDL3/SDL_video.h>
+#include <stdint.h>
 #include <time.h>
 #define SDL_MAIN_USE_CALLBACKS 1
 #include <SDL3/SDL.h>
@@ -11,10 +12,31 @@
 #include "stdint.h"
 #define PROGRAM_ST 0x200
 #define PROGRAM_ST_ETI660 0x660
+#define DIGITS_ADDR 0x000
+#define V0 0 
 #define VF 15
-uint8_t ram[4096]; // 4096 bytes RAM
+// 4096 bytes RAM
+uint8_t ram[4096] = {
+	0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+	0x20, 0x60, 0x20, 0x20, 0x70, // 1
+	0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+	0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+	0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+	0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+	0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+	0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+	0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+	0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9 
+	0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+	0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+	0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+	0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+	0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+	0xF0, 0x80, 0xF0, 0x80, 0x80 // F
+}; 
 uint16_t stack[16]; // stack for subroutine, Chip-8 allows for up to 16 levels of subroutines.
 uint8_t regs[16]; // 16 Vx registers, V0-VF.
+uint8_t keypad[16]; // 16 keys;
 uint16_t idx_reg;
 uint8_t delay_timer;
 uint8_t sound_timer;
@@ -162,6 +184,8 @@ void decode(uint16_t instruction){
 	uint8_t reg_id;
 	uint8_t val;
 	uint8_t reg_idx, reg_idy;
+	uint8_t pred;
+	uint8_t key;
 	switch(getnibble1(instruction)){
 		case 0x1:
 			addr = getimme_addr(instruction);
@@ -236,6 +260,13 @@ void decode(uint16_t instruction){
 					}
 					regs[reg_idx] = regs[reg_idx] - regs[reg_idy];
 					break;
+				case 0x6:
+#ifndef SUPER_OR_48
+					regs[reg_idx] = regs[reg_idy];
+#endif
+					regs[VF] = regs[reg_idx] & 1;
+					regs[reg_idx] >>= 1;
+					break;
 				case 0x7:
 					if(regs[reg_idy] >= regs[reg_idx]){
 						regs[VF] = 1;
@@ -244,6 +275,13 @@ void decode(uint16_t instruction){
 						regs[VF] = 0;
 					}
 					regs[reg_idx] = regs[reg_idy] - regs[reg_idx];
+					break;
+				case 0xE:
+#ifndef SUPER_OR_48
+					regs[reg_idx] = regs[reg_idy];
+#endif
+					regs[VF] = regs[reg_idx] & (0x80);
+					regs[reg_idx] <<= 1;
 					break;
 				default:
 					printf("unsupported instruction\n");
@@ -258,9 +296,23 @@ void decode(uint16_t instruction){
 				pc += 2;
 			}
 			break;
+		case 0xB:
+			addr = getimme_addr(instruction);
+#ifdef SUPER_OR_48
+			pc = addr + regs[V0];
+#else
+			reg_idx = getnibble2(instruction);	
+			pc = addr + regs[reg_idx];
+#endif
+			break;
 		case 0xA:
 			addr = getimme_addr(instruction);
 			idx_reg = addr;
+			break;
+		case 0xC:
+			reg_idx = getnibble2(instruction);
+			val = getimme_num(instruction);
+			regs[reg_idx] = (rand() % UINT8_MAX) & val;
 			break;
 		case 0xD:
 			reg_idx = getnibble2(instruction);
@@ -285,6 +337,89 @@ void decode(uint16_t instruction){
 				}
 			}
 			break;
+		case 0xE:
+			pred = getimme_num(instruction);
+			reg_idx = getnibble2(instruction);
+			key = regs[reg_idx];
+			if(key > 0xF){
+				printf("keypad range in 0 - F. Error.\n");
+				abort();
+			}
+			if(pred == 0x9E){
+				if(keypad[key])
+					pc+=2;
+			}
+			else if(pred == 0xA1){
+				if(!keypad[key])
+					pc+=2;
+			}
+			else{
+				printf("unsupported instruction\n");
+				abort();
+			}
+			break;
+		case 0xF:
+			pred = getimme_num(instruction);
+			reg_idx = getnibble2(instruction);
+			if(pred == 0x07){
+				regs[reg_idx] = delay_timer;
+			}
+			else if(pred == 0x15){
+				delay_timer = regs[reg_idx];
+			}
+			else if(pred == 0x18){
+				sound_timer = regs[reg_idx];
+			}
+			else if(pred == 0x1E){
+#ifdef INDEX_OVERFLOW
+				if(idx_reg + regs[reg_idx] < idx_reg)				
+					regs[VF] = 1;
+#endif
+				idx_reg += regs[reg_idx];
+			}
+			else if(pred == 0x0A){
+				bool pressed = false;
+				for(uint8_t i = 0; i < 16; i++){
+					if(keypad[i] == 1){
+						regs[reg_idx] = i;
+						pressed = true;
+						break;
+					}
+				}
+				if(pressed == false)
+					pc -= 2;
+			}
+			else if(pred == 0x29){
+				idx_reg = DIGITS_ADDR + ((uint16_t)regs[reg_idx] &0x0F ) * 5;
+			}
+			else if(pred == 0x33){
+				val = regs[reg_idx];
+				ram[idx_reg] = val / 100;
+				ram[idx_reg +1] = (val / 10) % 10;
+				ram[idx_reg +2] = (val % 10);
+			}
+			else if(pred == 0x55){
+				for(uint8_t i = 0; i <= reg_idx; i++){
+					ram[idx_reg + i] = regs[i];
+				}
+#ifdef COSMAC_VIP
+				idx_reg += reg_idx;
+#endif
+			}
+			else if(pred == 0x65){
+				for(uint8_t i = 0; i <= reg_idx; i++){
+					regs[i] = ram[idx_reg + i];
+				}
+#ifdef COSMAC_VIP
+				idx_reg += reg_idx;
+#endif
+			}
+			else{
+				printf("unsupported instruction\n");
+				abort();
+			}
+			break;
+
 		default:
 			printf("unsupported instruction\n");
 			abort();
@@ -315,7 +450,7 @@ void emulate(){
 	uint16_t instruction;
 	bool running = true;
 	while(running){
-		SLEEP(400);
+		SLEEP(1);
 		while (SDL_PollEvent(&event)){
 			if(event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED)
 				running = false;
@@ -338,6 +473,9 @@ void emulate(){
 			decode(instruction);
 		}
 		render();
+#ifdef DEBUG
+		// getc(stdin);
+#endif
 	}
 }
 
@@ -352,6 +490,7 @@ int main(int argc, char *argv[]){
 		return -1;
 	}
 
+	srand(time(NULL));
 	load_rom(argv[1]);
 	init_graphics();
 
