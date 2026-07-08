@@ -332,7 +332,7 @@ void emulate(){
 //			pc = 0;
 		}
 		else if(instruction == 0x00EE){
-			pc = stack[sp--];
+			pc = stack[--sp];
 		}
 		else{
 			decode(instruction);
